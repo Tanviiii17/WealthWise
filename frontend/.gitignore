@@ -1,0 +1,55 @@
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Environment variables — NEVER commit these ────────────────────
+.env
+.env.local
+.env.production
+*.env
+
+# ── Node / Frontend ───────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm
+
+# ── Vite ──────────────────────────────────────────────────────────
+frontend/dist/
+frontend/.vite/
+
+# ── IDE ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# ── Testing ───────────────────────────────────────────────────────
+test_ai.py
+test_agent.py
+check.py
+coverage/
+.pytest_cache/
+
+# ── Misc ──────────────────────────────────────────────────────────
+*.pem
+*.key
+.cache/

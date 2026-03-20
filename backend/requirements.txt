@@ -1,0 +1,13 @@
+# ── Web Framework ─────────────────────────────────────────────────
+Flask
+Flask-Cors
+python-dotenv
+ 
+# ── AI / LLM ──────────────────────────────────────────────────────
+requests
+openai
+langchain
+langchain_community
+ 
+# ── Data & Utils ──────────────────────────────────────────────────
+python-dateutil
