@@ -4,6 +4,7 @@ from flask_cors import CORS
 from jgaad_ai_agent_backup import jgaad_chat_with_gemini
 from agent import ask_question
 import gemini_fin_path
+import requests as req
 
 app = Flask(__name__)
 CORS(app)
@@ -11,6 +12,43 @@ CORS(app)
 @app.route('/', methods=['GET'])
 def home():
     return jsonify("HI")
+
+# =================== STOCK PROXY ===================
+@app.route('/stock', methods=['GET'])
+def get_stock():
+    """
+    Proxy for Yahoo Finance API — solves CORS issue in browser.
+    Frontend calls this instead of Yahoo Finance directly.
+    """
+    symbol   = request.args.get('symbol', '')
+    interval = request.args.get('interval', '1d')
+    range_   = request.args.get('range', '3mo')
+
+    if not symbol:
+        return jsonify({'error': 'symbol is required'}), 400
+
+    try:
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/"
+            f"{symbol}?interval={interval}&range={range_}&includePrePost=false"
+        )
+        r = req.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        return jsonify(r.json())
+    except Exception as e:
+        # Try backup Yahoo URL
+        try:
+            url2 = (
+                f"https://query2.finance.yahoo.com/v8/finance/chart/"
+                f"{symbol}?interval={interval}&range={range_}&includePrePost=false"
+            )
+            r2 = req.get(url2, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            return jsonify(r2.json())
+        except Exception as e2:
+            return jsonify({'error': str(e2)}), 500
 
 # =================== DYNAMIC APIS ===================
 @app.route('/agent', methods=['POST'])
@@ -22,22 +60,23 @@ def agent():
     print(f"User asked: {inp}")
 
     try:
-        # Directly call ask_question — no subprocess needed
         answer = ask_question(inp)
         print(f"AI answered: {answer[:100]}...")
         return jsonify({
             'output': answer,
-            'thought': ''   # kept for frontend compatibility
+            'thought': ''
         })
     except Exception as e:
         print(f"Error in /agent: {e}")
-        # Fallback to jgaad
         try:
             answer = jgaad_chat_with_gemini(inp)
             return jsonify({'output': answer, 'thought': ''})
         except Exception as e2:
             print(f"Fallback also failed: {e2}")
-            return jsonify({'output': 'Sorry, I could not process your request. Please try again.', 'thought': ''}), 500
+            return jsonify({
+                'output': 'Sorry, I could not process your request. Please try again.',
+                'thought': ''
+            }), 500
 
 @app.route('/ai-financial-path', methods=['POST'])
 def ai_financial_path():
@@ -46,7 +85,7 @@ def ai_financial_path():
 
     input_text = request.form.get('input', '')
     risk = request.form.get('risk', 'conservative')
-    print(f"Financial path request: {input_text}, risk: {risk}")
+    print(f"Financial path: {input_text}, risk: {risk}")
 
     try:
         response = gemini_fin_path.get_gemini_response(input_text, risk)

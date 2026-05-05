@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, TrendingUp, TrendingDown, RefreshCw, BarChart2, Activity, AlertCircle, Star, Clock } from 'lucide-react';
+import { SERVER_URL } from '../utils';
 
 interface StockQuote {
   symbol: string; name: string; price: number; change: number; changePct: number;
@@ -8,51 +9,18 @@ interface StockQuote {
 }
 interface HistPoint { date: string; close: number; }
 
-// ── 4-proxy fallback chain ─────────────────────────────────────────
-// Tries each proxy in order until one returns valid data
+// ── Fetch via YOUR Flask backend — no CORS issues ever ────────────
 async function fetchYahoo(symbol: string, interval: string, range: string) {
-  const base = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includePrePost=false`;
-
-  const proxies = [
-    // Proxy 1: corsproxy.io
-    async () => {
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(base)}`);
-      const j = await r.json();
-      return j?.chart?.result?.[0] ?? null;
-    },
-    // Proxy 2: allorigins (wraps response in {contents:"..."})
-    async () => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(base)}`);
-      const w = await r.json();
-      const j = JSON.parse(w.contents ?? '{}');
-      return j?.chart?.result?.[0] ?? null;
-    },
-    // Proxy 3: codetabs
-    async () => {
-      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(base)}`);
-      const j = await r.json();
-      return j?.chart?.result?.[0] ?? null;
-    },
-    // Proxy 4: thingproxy
-    async () => {
-      const r = await fetch(`https://thingproxy.freeboard.io/fetch/${base}`);
-      const j = await r.json();
-      return j?.chart?.result?.[0] ?? null;
-    },
-  ];
-
-  for (const tryProxy of proxies) {
-    try {
-      const result = await Promise.race([
-        tryProxy(),
-        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 7000)),
-      ]);
-      if (result && result.meta?.regularMarketPrice) return result;
-    } catch {
-      continue; // try next proxy
-    }
+  try {
+    const url = `${SERVER_URL}/stock?symbol=${encodeURIComponent(symbol)}&interval=${interval}&range=${range}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json?.chart?.result?.[0] ?? null;
+  } catch (e) {
+    console.error('fetchYahoo error:', e);
+    return null;
   }
-  return null;
 }
 
 async function fetchQuote(symbol: string): Promise<StockQuote | null> {
@@ -62,33 +30,44 @@ async function fetchQuote(symbol: string): Promise<StockQuote | null> {
   const price = m.regularMarketPrice ?? 0;
   const prev  = m.chartPreviousClose ?? m.previousClose ?? price;
   return {
-    symbol: m.symbol ?? symbol,
-    name: m.longName ?? m.shortName ?? symbol,
-    price, change: price - prev, changePct: prev ? ((price - prev) / prev) * 100 : 0,
-    open: m.regularMarketOpen ?? price, high: m.regularMarketDayHigh ?? price,
-    low: m.regularMarketDayLow ?? price, prevClose: prev,
-    volume: m.regularMarketVolume ?? 0, marketCap: m.marketCap ?? 0,
-    week52High: m.fiftyTwoWeekHigh ?? 0, week52Low: m.fiftyTwoWeekLow ?? 0,
-    currency: m.currency ?? 'INR',
+    symbol:     m.symbol ?? symbol,
+    name:       m.longName ?? m.shortName ?? symbol,
+    price,
+    change:     price - prev,
+    changePct:  prev ? ((price - prev) / prev) * 100 : 0,
+    open:       m.regularMarketOpen     ?? price,
+    high:       m.regularMarketDayHigh  ?? price,
+    low:        m.regularMarketDayLow   ?? price,
+    prevClose:  prev,
+    volume:     m.regularMarketVolume   ?? 0,
+    marketCap:  m.marketCap             ?? 0,
+    week52High: m.fiftyTwoWeekHigh      ?? 0,
+    week52Low:  m.fiftyTwoWeekLow       ?? 0,
+    currency:   m.currency              ?? 'INR',
   };
 }
 
 async function fetchHistory(symbol: string, range: string): Promise<HistPoint[]> {
-  const ivMap: Record<string,string> = { '1d':'5m','5d':'15m','1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','5y':'1mo' };
+  const ivMap: Record<string,string> = {
+    '1d':'5m','5d':'15m','1mo':'1d','3mo':'1d','6mo':'1wk','1y':'1wk','5y':'1mo'
+  };
   const result = await fetchYahoo(symbol, ivMap[range] ?? '1d', range);
   if (!result) return [];
   const ts: number[] = result.timestamp ?? [];
   const cl: number[] = result.indicators?.quote?.[0]?.close ?? [];
   return ts.map((t,i) => ({
-    date: new Date(t*1000).toLocaleDateString('en-IN', { month:'short', day:'numeric' }),
+    date:  new Date(t*1000).toLocaleDateString('en-IN', { month:'short', day:'numeric' }),
     close: cl[i] ?? 0,
   })).filter(p => p.close > 0);
 }
 
 const POPULAR = [
-  { sym:'RELIANCE.NS', label:'Reliance' }, { sym:'TCS.NS', label:'TCS' },
-  { sym:'HDFCBANK.NS', label:'HDFC Bank' }, { sym:'INFY.NS', label:'Infosys' },
-  { sym:'WIPRO.NS', label:'Wipro' }, { sym:'SBIN.NS', label:'SBI' },
+  { sym:'RELIANCE.NS', label:'Reliance' },
+  { sym:'TCS.NS',      label:'TCS'      },
+  { sym:'HDFCBANK.NS', label:'HDFC Bank'},
+  { sym:'INFY.NS',     label:'Infosys'  },
+  { sym:'WIPRO.NS',    label:'Wipro'    },
+  { sym:'SBIN.NS',     label:'SBI'      },
 ];
 const DEFAULT_WATCH = ['TCS.NS','HDFCBANK.NS','INFY.NS','WIPRO.NS'];
 
@@ -161,25 +140,23 @@ const inr = (n: number) => n ? `₹${n.toLocaleString('en-IN',{minimumFractionDi
 const fmt = (n: number, pre='₹') => !n?'—':n>=1e7?`${pre}${(n/1e7).toFixed(2)}Cr`:n>=1e5?`${pre}${(n/1e5).toFixed(2)}L`:n>=1e3?`${pre}${(n/1e3).toFixed(2)}K`:`${pre}${n.toFixed(2)}`;
 
 const StockAnalyzer = () => {
-  const [query,setQuery]     = useState('');
-  const [symbol,setSymbol]   = useState('RELIANCE.NS');
-  const [quote,setQuote]     = useState<StockQuote|null>(null);
-  const [history,setHistory] = useState<HistPoint[]>([]);
-  const [range,setRange]     = useState('3mo');
-  const [loading,setLoading] = useState(false);
-  const [error,setError]     = useState('');
-  const [proxyMsg,setProxyMsg] = useState('');
-  const [watched,setWatched] = useState<string[]>(DEFAULT_WATCH);
-  const [wData,setWData]     = useState<Record<string,StockQuote>>({});
-  const [wHist,setWHist]     = useState<Record<string,number[]>>({});
+  const [query,setQuery]       = useState('');
+  const [symbol,setSymbol]     = useState('RELIANCE.NS');
+  const [quote,setQuote]       = useState<StockQuote|null>(null);
+  const [history,setHistory]   = useState<HistPoint[]>([]);
+  const [range,setRange]       = useState('3mo');
+  const [loading,setLoading]   = useState(false);
+  const [error,setError]       = useState('');
+  const [watched,setWatched]   = useState<string[]>(DEFAULT_WATCH);
+  const [wData,setWData]       = useState<Record<string,StockQuote>>({});
+  const [wHist,setWHist]       = useState<Record<string,number[]>>({});
   const addRef = useRef<HTMLInputElement>(null);
   const RANGES = ['1d','5d','1mo','3mo','6mo','1y','5y'];
 
   const loadMain = async (sym: string, rng: string) => {
-    setLoading(true); setError(''); setProxyMsg('Trying proxy 1/4…'); setQuote(null); setHistory([]);
+    setLoading(true); setError(''); setQuote(null); setHistory([]);
     const [q,h] = await Promise.all([fetchQuote(sym), fetchHistory(sym,rng)]);
-    setProxyMsg('');
-    if (!q) setError(`Could not load "${sym}". All proxies failed. Check internet connection or try again.`);
+    if (!q) setError(`Could not load "${sym}". Make sure backend is running and use .NS suffix for NSE stocks.`);
     else { setQuote(q); setHistory(h); }
     setLoading(false);
   };
@@ -246,16 +223,18 @@ const StockAnalyzer = () => {
         </div>
       </div>
 
-      {/* Status messages */}
+      {/* Error */}
       {error && (
         <div style={{ padding:'10px 16px',borderRadius:12,flexShrink:0,background:'rgba(255,77,106,.08)',border:'1px solid rgba(255,77,106,.2)',color:'#ff4d6a',display:'flex',alignItems:'center',gap:8,fontSize:13 }}>
           <AlertCircle size={14}/> {error}
         </div>
       )}
+
+      {/* Loading status */}
       {loading && (
         <div style={{ padding:'10px 16px',borderRadius:12,flexShrink:0,background:'rgba(0,255,136,.06)',border:'1px solid rgba(0,255,136,.15)',color:'#00ff88',display:'flex',alignItems:'center',gap:8,fontSize:13 }}>
           <RefreshCw size={14} style={{ animation:'spin .7s linear infinite' }}/>
-          <span style={mono}>{proxyMsg || `Fetching live data for ${symbol}…`}</span>
+          <span style={mono}>Fetching live data for {symbol}…</span>
         </div>
       )}
 
@@ -305,7 +284,7 @@ const StockAnalyzer = () => {
               {loading
                 ? <div style={{ height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,color:'#3d5166' }}>
                     <RefreshCw size={24} style={{ color:'#00ff88',animation:'spin .7s linear infinite' }}/>
-                    <span style={{ ...mono,fontSize:11 }}>Loading chart data…</span>
+                    <span style={{ ...mono,fontSize:11 }}>Loading chart…</span>
                   </div>
                 : <StockChart data={history} color={accent}/>
               }
